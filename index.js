@@ -66,7 +66,8 @@ class PD {
       server: true,
     });
     await discovery.flushed();
-    this.store.findingPeers();
+    const foundPeers = this.store.findingPeers();
+    foundPeers();
 
     this.publicKey = utils.formatToStr(this.swarm.keyPair.publicKey);
     this.secretKey = utils.formatToStr(this.swarm.keyPair.secretKey);

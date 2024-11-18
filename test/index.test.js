@@ -42,6 +42,7 @@ test("List file", async (t) => {
     }
 
     const networkFilesP1 = await p1.listNetworkFiles();
+    console.log("Network files", networkFilesP1);
 
     if (networkFilesP1.length === 3)
       t.pass("Network files listed successfully");
