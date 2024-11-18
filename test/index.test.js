@@ -12,34 +12,16 @@ test("List file", async (t) => {
     const files = await pd.listLocalFiles();
     if (files.length === 3) t.pass("Local files listed successfully");
     else t.fail("Local files not listed successfully");
+    await pd.close()
   });
 
   await t.test("network files (shouldn't work)", async (t) => {
     const [p1, p2] = await utils.createNetwork(2);
 
-    // Wait for peers to connect drives
-    let peerDrivesConnected = false;
-    const startTime = Date.now();
-    while (!peerDrivesConnected && Date.now() - startTime < 60000) {
-      let p1hasp2 = false;
-      let p2hasp1 = false;
-
-      // Check for p2's hyperdrive in p1's networkDrive
-      if (Object.keys(p1.peerDrives).includes(p2.publicKey)) {
-        p1hasp2 = true;
-      }
-
-      // Check for p1's hyperdrive in p2's networkDrive
-      if (Object.keys(p2.peerDrives).includes(p1.publicKey)) {
-        p2hasp1 = true;
-      }
-
-      if (p1hasp2 && p2hasp1) {
-        peerDrivesConnected = true;
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+    // For testing reasons, wait for all pending swarm i/o to finish
+    // makes the assertions below easier to reason about (do not do this in a real world app)
+    await p1.swarm.flush()
+    await p2.swarm.flush()
 
     const networkFilesP1 = await p1.listNetworkFiles();
     console.log("Network files", networkFilesP1);
@@ -47,5 +29,8 @@ test("List file", async (t) => {
     if (networkFilesP1.length === 3)
       t.pass("Network files listed successfully");
     else t.fail("Network files not listed successfully");
+
+    await p1.close()
+    await p2.close()
   });
 });
