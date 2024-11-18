@@ -7,6 +7,8 @@ import Corestore from "corestore";
 import b4a from "b4a";
 import debounce from "debounceify";
 import goodbye from "graceful-goodbye";
+import RPC from 'protomux-rpc';
+import c from 'compact-encoding';
 
 import * as utils from "./utils.js";
 
@@ -32,6 +34,8 @@ class PD {
     this._networkUpdate = this._networkUpdate.bind(this);
     this._swarmConnection = this._swarmConnection.bind(this);
 
+    this.swarm.on("connection", this._swarmConnection);
+
     this._connClose = this._connClose.bind(this);
     this._connData = this._connData.bind(this);
 
@@ -49,7 +53,11 @@ class PD {
 
   async ready() {
     await this.store.ready();
-    this.swarm.on("connection", this._swarmConnection);
+  }
+
+  async close () {
+    await this.swarm.destroy()
+    await this.store.close()
   }
 
   async joinNetwork(topic) {
@@ -66,8 +74,6 @@ class PD {
       server: true,
     });
     await discovery.flushed();
-    const foundPeers = this.store.findingPeers();
-    foundPeers();
 
     this.publicKey = utils.formatToStr(this.swarm.keyPair.publicKey);
     this.secretKey = utils.formatToStr(this.swarm.keyPair.secretKey);
@@ -111,15 +117,25 @@ class PD {
   }
 
   async _swarmConnection(conn) {
-    conn.once("close", this._connClose);
+    this.store.replicate(conn) // replicate the drives etc
+    const rpc = new RPC(conn, {
+      valueEncoding: c.json
+    }) // speak rpc for the rest
+
+    rpc.respond(DRIVE_KEY_SEND_MESSAGE, (payload) => {
+      return this._handleDriveKeySendMessage(conn, payload)
+    })
+
+    rpc.respond(DRIVE_KEY_REQUEST_MESSAGE, (payload) => {
+      return this._handleDriveKeyRequestMessage(conn, payload);
+    })
+
+    conn.once("close", this._connClose.bind(this, conn));
     conn.on("data", (data) => this._connData(conn, data));
 
     const key = utils.formatToStr(conn.remotePublicKey);
-    this.activePeers[key] = conn;
-    this._sendMessageToPeer(key, {
-      type: DRIVE_KEY_SEND_MESSAGE,
-      payload: utils.formatToStr(this.drive.key),
-    });
+    this.activePeers[key] = rpc;
+    this._sendMessageToPeer(key, DRIVE_KEY_SEND_MESSAGE, utils.formatToStr(this.drive.key));
   }
 
   async _connClose(conn) {
@@ -157,6 +173,7 @@ class PD {
 
   async _handleDriveKeyRequestMessage(conn, payload) {
     //
+    return true
   }
 
   async _handleDriveKeySendMessage(conn, payload) {
@@ -166,17 +183,15 @@ class PD {
     drive.core.on("append", this._networkUpdate);
     await drive.ready();
     this.peerDrives[peerKeyStr] = drive;
+    return true
   }
 
-  async _sendMessageToPeer(key, { type, payload }) {
-    const messageStr = JSON.stringify({ type, payload });
-    const conn = this.activePeers[key];
+  async _sendMessageToPeer(key, type, payload) {
+    const rpc = this.activePeers[key];
 
-    if (!conn) {
-      return false;
-    }
+    if (!rpc) return false;
 
-    await conn.write(messageStr);
+    await rpc.request(type, payload);
   }
 }
 
